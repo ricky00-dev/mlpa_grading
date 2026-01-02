@@ -1,3 +1,17 @@
+# General
+.DS_Store
 .idea
-.vscode
-.mcp
+*.iws
+*.iml
+*.ipr
+
+# Logs
+*.log
+boot_error.log
+push.log
+push_error.txt
+
+# Secrets
+.env
+**/.env
+**/application-aws.yml
