@@ -1,5 +1,8 @@
 package com.dankook.mlpa_gradi.controller;
 
+import com.dankook.mlpa_gradi.entity.Exam;
+import com.dankook.mlpa_gradi.repository.ExamRepository;
+import com.dankook.mlpa_gradi.service.AiPdfClientService;
 import com.dankook.mlpa_gradi.service.PdfService;
 import com.dankook.mlpa_gradi.service.S3PresignService;
 import lombok.RequiredArgsConstructor;
@@ -8,10 +11,9 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 
 import java.util.List;
 
@@ -21,11 +23,13 @@ import java.util.List;
 public class ReportController {
 
     private final PdfService pdfService;
+    private final AiPdfClientService aiPdfClientService;
     private final S3PresignService s3PresignService;
+    private final ExamRepository examRepository;
     private final com.dankook.mlpa_gradi.repository.memory.InMemoryReportRepository inMemoryReportRepository;
 
     /**
-     * ✅ 학생 정오표 PDF 다운로드
+     * ✅ 학생 정오표 PDF 다운로드 (BE에서 iText로 직접 생성)
      */
     @GetMapping("/pdf/{examCode}/{studentId}")
     public ResponseEntity<ByteArrayResource> downloadPdf(
@@ -36,9 +40,48 @@ public class ReportController {
         ByteArrayResource resource = new ByteArrayResource(pdfBytes);
 
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
-                        .filename(examCode + "_" + studentId + "_report.pdf")
-                        .build().toString())
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment()
+                                .filename(examCode + "_" + studentId + "_report.pdf")
+                                .build().toString())
+                .contentType(MediaType.APPLICATION_PDF)
+                .contentLength(pdfBytes.length)
+                .body(resource);
+    }
+
+    /**
+     * ✅ 과목 통계 PDF 다운로드
+     * examCode → DB 검증 → examName(subject) 매핑 → FastAPI PDF 호출
+     *
+     * 테스트:
+     * /api/reports/course-stats.pdf?examCode=ABC123
+     */
+    @GetMapping("/course-stats.pdf")
+    public ResponseEntity<ByteArrayResource> downloadCourseStatsPdf(
+            @RequestParam String examCode
+    ) {
+        // 1️⃣ examCode 존재 여부 검증
+        Exam exam = examRepository.findByExamCode(examCode)
+                .orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Invalid examCode: " + examCode
+                        )
+                );
+
+        // 2️⃣ examCode → subject(examName) 매핑
+        String subject = exam.getExamName();
+
+        // 3️⃣ AI 서버(FastAPI) 호출
+        byte[] pdfBytes = aiPdfClientService.fetchCourseStatsPdf(subject);
+        ByteArrayResource resource = new ByteArrayResource(pdfBytes);
+
+        // 4️⃣ PDF 다운로드 응답
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment()
+                                .filename("course-stats-" + examCode + ".pdf")
+                                .build().toString())
                 .contentType(MediaType.APPLICATION_PDF)
                 .contentLength(pdfBytes.length)
                 .body(resource);
@@ -59,8 +102,6 @@ public class ReportController {
      */
     @GetMapping("/unknown-images/{examCode}")
     public List<String> getUnknownImages(@PathVariable String examCode) {
-        // 기존 S3 폴더 조회 로직과 메모리 데이터 병합 또는 메모리 우선 사용
-        // 여기서는 SQS로 받은 실시간 데이터를 우선합니다.
         return inMemoryReportRepository.getUnknownImages(examCode);
     }
 }

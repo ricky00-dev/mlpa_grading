@@ -43,5 +43,7 @@ application-aws.yml
 boot_error.log
 backend.log
 BE/ai/.env
+# Spring local config
+application-local.yml
 
 
