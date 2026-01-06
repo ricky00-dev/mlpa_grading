@@ -84,6 +84,9 @@ class SQSWorker:
         # ExamCode별 학번 리스트 저장소
         self._student_id_lists: Dict[str, List[str]] = {}
         
+        # ExamCode별 index 카운터 (AI 서버에서 0부터 카운트)
+        self._index_counters: Dict[str, int] = {}
+        
         logger.info(f"SQS Worker 초기화 완료: {queue_url}")
     
     def set_student_id_callback(self, callback: Callable[[np.ndarray, List[str]], dict]):
@@ -107,6 +110,19 @@ class SQSWorker:
     def get_student_list(self, exam_code: str) -> List[str]:
         """특정 시험의 학번 리스트 반환"""
         return self._student_id_lists.get(exam_code, [])
+    
+    def get_next_index(self, exam_code: str) -> int:
+        """특정 시험의 다음 index 반환 (0부터 시작, 호출 시 자동 증가)"""
+        if exam_code not in self._index_counters:
+            self._index_counters[exam_code] = 0
+        current_index = self._index_counters[exam_code]
+        self._index_counters[exam_code] += 1
+        return current_index
+    
+    def reset_index(self, exam_code: str):
+        """특정 시험의 index 카운터 리셋 (출석부 업로드 시 호출)"""
+        self._index_counters[exam_code] = 0
+        logger.info(f"[INDEX_RESET] {exam_code} index 카운터 리셋")
     
     # =========================================================================
     # 이미지 다운로드
@@ -209,11 +225,23 @@ class SQSWorker:
                 return None
             
             msg = messages[0]
-            body = json.loads(msg['Body'])
+            raw_body = msg['Body']
             
+            body = json.loads(raw_body)
+            # 디버깅: 수신된 모든 메시지 로깅
+            logger.info(f"[SQS_RECEIVED] Raw body: {raw_body}")
+            print(f"[SQS_RECEIVED] eventType={body.get('eventType')}, examCode={body.get('examCode')}")
+            
+            # 자신이 보낸 결과 메시지인지 확인 (결과 메시지에는 studentId가 있음)
+            if "studentId" in body and body.get("eventType") == EVENT_STUDENT_ID_RECOGNITION:
+                logger.info(f"[SQS_DROP] AI가 생성한 결과 메시지를 무시합니다: {body.get('studentId')}")
+                print(f"[SQS_DROP] Ignoring own result message for {body.get('studentId')}")
+                return None
+
             return SQSInputMessage.from_sqs_message(body, msg['ReceiptHandle'])
             
         except Exception as e:
+            print(f"[SQS_ERROR] SQS 메시지 수신 실패: {e}")
             logger.error(f"SQS 메시지 수신 실패: {e}")
             return None
     
@@ -222,14 +250,18 @@ class SQSWorker:
         import uuid
         
         try:
+            body = message.to_json()
+            # 디버깅: 전송 메시지 로그
+            logger.info(f"[SQS_SEND] Sending result: {body}")
+            
             response = self.sqs.send_message(
                 QueueUrl=self.queue_url,
-                MessageBody=message.to_json(),
+                MessageBody=body,
                 MessageGroupId=group_id,
                 MessageDeduplicationId=str(uuid.uuid4())
             )
             msg_id = response.get('MessageId')
-            logger.info(f"SQS 결과 전송: {msg_id}")
+            logger.info(f"SQS 결과 전송 완료: {msg_id}")
             return msg_id
         except ClientError as e:
             logger.error(f"SQS 메시지 전송 실패: {e}")
@@ -252,16 +284,16 @@ class SQSWorker:
     # =========================================================================
     def handle_attendance_upload(self, msg: SQSInputMessage) -> bool:
         """출석부 업로드 이벤트 처리"""
-        logger.info(f"[ATTENDANCE_UPLOAD] exam={msg.exam_code}, file={msg.file_name}")
+        logger.info(f"[ATTENDANCE_UPLOAD] exam={msg.exam_code}, file={msg.filename}")
         
         if not msg.download_url:
-            logger.error("downloadUrl이 없습니다.")
-            return False
+            logger.error(f"[ATTENDANCE_UPLOAD ERROR] downloadUrl이 누락되었습니다. 이 메시지를 큐에서 삭제합니다. 메시지: {msg}")
+            return True  # True를 반환하여 큐에서 메시지를 삭제하도록 함
         
         # 1. 파일 다운로드
         tmp_path = self.download_file_from_url(msg.download_url, suffix=".xlsx")
         if not tmp_path:
-            return False
+            return False  # 다운로드 실패는 재시도 가치가 있으므로 False
         
         try:
             # 2. 출석부 파싱
@@ -276,6 +308,9 @@ class SQSWorker:
             self._student_id_lists[msg.exam_code] = student_ids
             logger.info(f"[ATTENDANCE_UPLOAD] {msg.exam_code}: {len(student_ids)}명 로드 완료")
             
+            # 4. 해당 시험의 index 카운터 리셋 (새 시험 시작)
+            self.reset_index(msg.exam_code)
+            
             return True
             
         finally:
@@ -285,22 +320,22 @@ class SQSWorker:
     
     def handle_student_id_recognition(self, msg: SQSInputMessage) -> bool:
         """이미지 학번 추출 이벤트 처리"""
-        logger.info(f"[STUDENT_ID_RECOGNITION] exam={msg.exam_code}, file={msg.file_name}, index={msg.index}/{msg.total}")
+        current_index = self.get_next_index(msg.exam_code)
+        logger.info(f"[STUDENT_ID_RECOGNITION] exam={msg.exam_code}, file={msg.filename}, index={current_index}")
         
-        if not msg.image_url:
-            logger.error("imageUrl이 없습니다.")
-            return False
+        if not msg.download_url:
+            logger.error(f"[STUDENT_ID_RECOGNITION ERROR] downloadUrl이 누락되었습니다. 이 메시지를 큐에서 삭제합니다. 메시지: {msg}")
+            return True  # True를 반환하여 큐에서 메시지를 삭제하도록 함
         
-        # 1. 이미지 다운로드
-        image = self.download_image(msg.image_url)
+        # 1. 이미지 다운로드 (downloadUrl 사용)
+        image = self.download_image(msg.download_url)
         if image is None:
             # 실패해도 결과는 전송
             result_msg = SQSOutputMessage.create(
                 exam_code=msg.exam_code,
                 student_id=None,
-                file_name=msg.file_name,
-                index=msg.index,
-                total=msg.total
+                filename=msg.filename,
+                index=current_index
             )
             self.send_result_message(result_msg, group_id=msg.exam_code)
             return False
@@ -316,17 +351,16 @@ class SQSWorker:
         result_msg = SQSOutputMessage.create(
             exam_code=msg.exam_code,
             student_id=student_id,
-            file_name=msg.file_name,
-            index=msg.index,
-            total=msg.total
+            filename=msg.filename,
+            index=current_index
         )
         self.send_result_message(result_msg, group_id=msg.exam_code)
         
         # 4. S3 업로드 (성공 시 original, 실패 시 header/unknown_id)
         if student_id:
-            s3_key = f"original/{msg.exam_code}/{student_id}/{msg.file_name}"
+            s3_key = f"original/{msg.exam_code}/{student_id}/{msg.filename}"
         else:
-            s3_key = f"header/{msg.exam_code}/{UNKNOWN_ID}/{msg.file_name}"
+            s3_key = f"header/{msg.exam_code}/{UNKNOWN_ID}/{msg.filename}"
         
         self.upload_image_to_s3(image, s3_key)
         
@@ -334,11 +368,13 @@ class SQSWorker:
     
     def process_message(self, msg: SQSInputMessage) -> bool:
         """메시지 타입에 따라 적절한 핸들러 호출"""
+        print(f"[SQS_PROCESSING] event_type={msg.event_type}, exam_code={msg.exam_code}")
         if msg.event_type == EVENT_ATTENDANCE_UPLOAD:
             return self.handle_attendance_upload(msg)
         elif msg.event_type == EVENT_STUDENT_ID_RECOGNITION:
             return self.handle_student_id_recognition(msg)
         else:
+            print(f"[SQS_WARNING] 알 수 없는 이벤트 타입: {msg.event_type}")
             logger.warning(f"알 수 없는 이벤트 타입: {msg.event_type}")
             return False
     
@@ -347,7 +383,10 @@ class SQSWorker:
     # =========================================================================
     def _worker_loop(self):
         """워커 메인 루프"""
-        logger.info("SQS Worker 시작 - 메시지 폴링 대기 중...")
+        with open("debug_worker.log", "a") as f:
+            f.write(f"[{time.ctime()}] SQS Worker Loop Started\n")
+        print(f"[SQS_LOOP] SQS Worker 시작 - 메시지 폴링 대기 중... (Queue: {self.queue_url})")
+        logger.info(f"SQS Worker 시작 - 메시지 폴링 대기 중... (Queue: {self.queue_url})")
         
         while self._running:
             try:
@@ -355,6 +394,7 @@ class SQSWorker:
                 msg = self.receive_message(wait_time_seconds=20)
                 
                 if msg is None:
+                    # 주기적으로 살아있음을 알림 (너무 자주 찍히지 않게 주의)
                     continue
                 
                 # 메시지 처리

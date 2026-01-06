@@ -222,6 +222,9 @@ async def fallback(request: FallbackRequest):
     - unknown_id 폴더의 이미지를 올바른 학번 폴더로 이동
     - header → original 경로 복사
     """
+    # 디버깅용: 요청 데이터 로깅
+    print(f"[API_REQUEST] /fallback/ body: {request.json()}")
+    
     if not ModelStore.s3_manager or not ModelStore.s3_manager.is_ready:
         raise HTTPException(status_code=503, detail="S3 클라이언트가 준비되지 않았습니다.")
     

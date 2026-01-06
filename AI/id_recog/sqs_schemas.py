@@ -43,15 +43,25 @@ class SQSInputMessage:
     
     Event Types:
     - ATTENDANCE_UPLOAD: 출석부 다운로드 요청
+      {
+        "eventType": "ATTENDANCE_UPLOAD",
+        "examCode": "TEST",
+        "downloadUrl": "presigned_url",
+        "filename": "출석부.xlsx"
+      }
+      
     - STUDENT_ID_RECOGNITION: 이미지 학번 추출 요청
+      {
+        "eventType": "STUDENT_ID_RECOGNITION",
+        "examCode": "AI_2024_MID",
+        "downloadUrl": "presigned_url",
+        "filename": "page_001.jpg"
+      }
     """
     event_type: str
     exam_code: str
-    file_name: str
-    index: int
-    total: int
-    image_url: Optional[str] = None      # STUDENT_ID_RECOGNITION 시
-    download_url: Optional[str] = None   # ATTENDANCE_UPLOAD 시
+    filename: str
+    download_url: str
     receipt_handle: Optional[str] = None  # SQS 메시지 삭제용 (내부 사용)
     
     @classmethod
@@ -62,11 +72,8 @@ class SQSInputMessage:
         return cls(
             event_type=body.get("eventType", ""),
             exam_code=body.get("examCode", ""),
-            file_name=body.get("fileName", ""),
-            index=body.get("index", 0),
-            total=body.get("total", 0),
-            image_url=body.get("imageUrl"),
-            download_url=body.get("downloadUrl"),
+            filename=body.get("filename", ""),
+            download_url=body.get("downloadUrl", ""),
             receipt_handle=receipt_handle
         )
 
@@ -78,26 +85,40 @@ class SQSInputMessage:
 class SQSOutputMessage:
     """
     AI 서버에서 백엔드로 전송하는 SQS 결과 메시지
+    
+    Case 1: 학번 인식 성공
+    {
+      "eventType": "STUDENT_ID_RECOGNITION",
+      "examCode": "AI_2024_MID",
+      "studentId": "20211234",
+      "filename": "page_001.jpg",
+      "index": 0
+    }
+    
+    Case 2: 학번 인식 실패
+    {
+      "eventType": "STUDENT_ID_RECOGNITION",
+      "examCode": "AI_2024_MID",
+      "studentId": "unknown_id",
+      "filename": "page_001.jpg",
+      "index": 0
+    }
     """
     event_type: str
     exam_code: str
     student_id: str  # 실패 시 "unknown_id"
-    file_name: str
+    filename: str
     index: int
-    total: Optional[int] = None
     
     def to_dict(self) -> dict:
         """camelCase 딕셔너리로 변환"""
-        d = {
+        return {
             "eventType": self.event_type,
             "examCode": self.exam_code,
             "studentId": self.student_id,
-            "fileName": self.file_name,
+            "filename": self.filename,
             "index": self.index,
         }
-        if self.total is not None:
-            d["total"] = self.total
-        return d
     
     def to_json(self) -> str:
         """JSON 문자열로 변환"""
@@ -108,9 +129,8 @@ class SQSOutputMessage:
         cls,
         exam_code: str,
         student_id: Optional[str],
-        file_name: str,
+        filename: str,
         index: int,
-        total: Optional[int] = None,
         event_type: str = EVENT_STUDENT_ID_RECOGNITION
     ) -> "SQSOutputMessage":
         """
@@ -119,9 +139,8 @@ class SQSOutputMessage:
         Args:
             exam_code: 시험 코드
             student_id: 추출된 학번 (None이면 unknown_id)
-            file_name: 파일명
-            index: 순차 인덱스
-            total: 전체 이미지 수 (선택)
+            filename: 파일명
+            index: AI 서버가 카운트한 순차 인덱스
             event_type: 이벤트 타입
         """
         effective_student_id = student_id if student_id else UNKNOWN_ID
@@ -130,9 +149,8 @@ class SQSOutputMessage:
             event_type=event_type,
             exam_code=exam_code,
             student_id=effective_student_id,
-            file_name=file_name,
-            index=index,
-            total=total
+            filename=filename,
+            index=index
         )
 
 
@@ -142,13 +160,13 @@ class SQSOutputMessage:
 @dataclass
 class FallbackImageItem:
     """Fallback 요청의 개별 이미지 항목"""
-    file_name: str
+    filename: str
     student_id: str
     
     @classmethod
     def from_dict(cls, d: dict) -> "FallbackImageItem":
         return cls(
-            file_name=d.get("fileName", ""),
+            filename=d.get("filename", ""),
             student_id=d.get("studentId", "")
         )
 
@@ -162,7 +180,7 @@ class FallbackRequest:
     {
         "examCode": "ABCDEF",
         "images": [
-            {"fileName": "image1.jpg", "studentId": "32204077"},
+            {"filename": "image1.jpg", "studentId": "32204077"},
             ...
         ]
     }
@@ -182,27 +200,43 @@ class FallbackRequest:
 # =============================================================================
 if __name__ == "__main__":
     print("=== SQS 입력 메시지 (BE → AI) ===")
-    input_body = {
+    
+    # ATTENDANCE_UPLOAD 예시
+    attendance_body = {
+        "eventType": "ATTENDANCE_UPLOAD",
+        "examCode": "TEST",
+        "downloadUrl": "https://presigned-url...",
+        "filename": "출석부.xlsx"
+    }
+    attendance_msg = SQSInputMessage.from_sqs_message(attendance_body, receipt_handle="test-handle")
+    print(f"[ATTENDANCE_UPLOAD]")
+    print(f"  event_type: {attendance_msg.event_type}")
+    print(f"  exam_code: {attendance_msg.exam_code}")
+    print(f"  download_url: {attendance_msg.download_url}")
+    print(f"  filename: {attendance_msg.filename}")
+    print()
+    
+    # STUDENT_ID_RECOGNITION 예시
+    recognition_body = {
         "eventType": "STUDENT_ID_RECOGNITION",
         "examCode": "AI_2024_MID",
-        "imageUrl": "s3://mlpa-gradi/uploads/exam123/page_001.jpg",
-        "fileName": "page_001.jpg",
-        "index": 0,
-        "total": 40
+        "downloadUrl": "https://presigned-url.../page_001.jpg",
+        "filename": "page_001.jpg"
     }
-    input_msg = SQSInputMessage.from_sqs_message(input_body, receipt_handle="test-handle")
-    print(f"event_type: {input_msg.event_type}")
-    print(f"exam_code: {input_msg.exam_code}")
-    print(f"image_url: {input_msg.image_url}")
+    recognition_msg = SQSInputMessage.from_sqs_message(recognition_body, receipt_handle="test-handle")
+    print(f"[STUDENT_ID_RECOGNITION]")
+    print(f"  event_type: {recognition_msg.event_type}")
+    print(f"  exam_code: {recognition_msg.exam_code}")
+    print(f"  download_url: {recognition_msg.download_url}")
+    print(f"  filename: {recognition_msg.filename}")
     print()
     
     print("=== SQS 출력 메시지 (AI → BE) ===")
     output_msg = SQSOutputMessage.create(
         exam_code="AI_2024_MID",
         student_id="20211234",
-        file_name="page_001.jpg",
-        index=0,
-        total=40
+        filename="page_001.jpg",
+        index=0  # AI 서버가 카운트한 값
     )
     print(output_msg.to_json())
     print()
@@ -211,10 +245,11 @@ if __name__ == "__main__":
     fallback_body = {
         "examCode": "ABCDEF",
         "images": [
-            {"fileName": "image1.jpg", "studentId": "32204077"},
-            {"fileName": "image2.jpg", "studentId": "32204078"}
+            {"filename": "image1.jpg", "studentId": "32204077"},
+            {"filename": "image2.jpg", "studentId": "32204078"}
         ]
     }
     fallback_req = FallbackRequest.from_dict(fallback_body)
     print(f"exam_code: {fallback_req.exam_code}")
-    print(f"images: {[(img.file_name, img.student_id) for img in fallback_req.images]}")
+    print(f"images: {[(img.filename, img.student_id) for img in fallback_req.images]}")
+
