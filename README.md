@@ -14,12 +14,25 @@ Gradi는 AI를 활용하여 학생들의 답안지를 자동으로 채점하는 
 - **State Management**: React Hooks (useState, useEffect, useCallback)
 - **Real-time Communication**: Server-Sent Events (SSE)
 
-### Backend
-- **Framework**: Spring Boot 3.x
-- **Language**: Java 17+
-- **Database**: MySQL/MariaDB
-- **Cloud Services**: AWS S3, SQS, Lambda
-- **Real-time**: SSE (SseEmitter)
+##  wrenches: 주요 수정 사항 (Key Fixes)
+
+### ✅ Backend (Spring Boot)
+*   **SSE 및 순환 참조 해결**:
+    *   `StorageController`와 `SqsListenerService` 간의 순환 의존성을 끊기 위해 SSE 로직을 별도의 `SseService`로 분리했습니다.
+*   **SQS 처리 개선**:
+    *   `SqsListenerService`를 리팩토링하여 `event_type`에 따라 서로 다른 로직을 수행하도록 `switch` 문을 도입했습니다.
+    *   **안전장치**: AI 서비스가 `status` 값을 보내지 않더라도 Backend에서 자동으로 주입하여 Frontend가 멈추지 않도록 조치했습니다.
+*   **CORS 설정**:
+    *   Frontend(`http://localhost:3000`)에 대해 `allowCredentials(true)`를 포함한 CORS 정책을 적용하여 SSE 연결 안정을 확보했습니다.
+
+### ✅ Frontend (Next.js)
+*   **시험 생성 내비게이션 수정**:
+    *   로딩 페이지로 이동할 때 `total` 값이 0이거나 문항 수로 잘못 전달되던 버그를 수정했습니다.
+    *   이제 업로드된 **실제 파일 개수(`answerSheetFiles.length`)**가 정확히 전달됩니다.
+*   **진행률 표시 (Progress Bar)**:
+    *   `StudentIdLoading` 컴포넌트가 SSE 이벤트를 수신할 때마다 전체 개수와 현재 진행 개수를 동적으로 업데이트하도록 수정했습니다.
+*   **프록시 설정**:
+    *   `next.config.ts`에서 `/api/*` 요청을 Backend 포트(`8080`)로 포워딩하도록 설정했습니다.
 
 ## 📂 프로젝트 구조
 
