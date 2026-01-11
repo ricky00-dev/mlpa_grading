@@ -211,7 +211,7 @@ chore: 빌드 설정, 패키지 매니저 등
 
 ## 👥 기여자
 
-- Dankook University MLPA Team
+- Dankook University Trender Team
 
 ---
 
