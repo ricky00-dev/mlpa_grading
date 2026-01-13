@@ -34,6 +34,13 @@ Gradi는 AI를 활용하여 학생들의 답안지를 자동으로 채점하는 
 *   **프록시 설정**:
     *   `next.config.ts`에서 `/api/*` 요청을 Backend 포트(`8080`)로 포워딩하도록 설정했습니다.
 
+### 6. 단국대학교 포털 인증 (ID Verification)
+- **기능**: 프론트엔드에서 Backend Proxy를 통해 단국대 포털 API(`ConfirmUserId.eps`)를 호출하여 실시간 학번 검증 수행 (자동 로그인 아님)
+- **구현**:
+  - `PortalAuthService.java`: WebClient를 사용한 외부 포털 연동
+  - `PortalAuthController.java`: `/api/auth/verify-dku` 엔드포인트 제공
+  - `StudentVerifyPage.tsx`: 학번 입력 및 검증 UI 구현
+
 ## 📂 프로젝트 구조
 
 ```

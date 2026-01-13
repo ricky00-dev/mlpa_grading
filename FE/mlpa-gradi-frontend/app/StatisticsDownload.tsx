@@ -28,6 +28,23 @@ const StatisticsDownload: React.FC<StatisticsDownloadProps> = ({
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [displayItems, setDisplayItems] = useState<StatisticsItem[]>([]);
 
+    // Student Access State
+    const [isStudentAccess, setIsStudentAccess] = useState(false);
+
+    useEffect(() => {
+        if (examCode) {
+            const saved = localStorage.getItem(`student_access_${examCode}`);
+            setIsStudentAccess(saved === "true");
+        }
+    }, [examCode]);
+
+    const toggleStudentAccess = () => {
+        const newState = !isStudentAccess;
+        setIsStudentAccess(newState);
+        localStorage.setItem(`student_access_${examCode}`, String(newState));
+    };
+
+    const studentPageUrl = typeof window !== 'undefined' ? `${window.location.origin}/student/verify/${items ? '' : examCode}` : ''; // Using examCode for mock URL
 
     useEffect(() => {
         if (items && items.length > 0) {
@@ -136,12 +153,37 @@ const StatisticsDownload: React.FC<StatisticsDownloadProps> = ({
             {/* Header Content Wrapper */}
             <div className="pt-[120px] px-6 relative z-10 animate-fade-in-up">
                 <div className="flex justify-between items-end mb-2">
-                    <h1 className="text-[40px] font-semibold leading-[48px] bg-gradient-to-r from-[#AC5BF8] to-[#636ACF] bg-clip-text text-transparent">
-                        {examTitle}({examCode})
-                    </h1>
-                    <p className="text-[#A0A0A0] text-[20px] font-medium leading-[29px]">
-                        과목 통계와 학생별 ZIP(학생이 응답한 답안지, 정오표)를 다운로드합니다.
-                    </p>
+                    <div>
+                        <h1 className="text-[40px] font-semibold leading-[48px] bg-gradient-to-r from-[#AC5BF8] to-[#636ACF] bg-clip-text text-transparent">
+                            {examTitle}({examCode})
+                        </h1>
+                        <p className="text-[#A0A0A0] text-[20px] font-medium leading-[29px]">
+                            과목 통계와 학생별 ZIP(학생이 응답한 답안지, 정오표)를 다운로드합니다.
+                        </p>
+                    </div>
+
+                    {/* Student Access Control Panel */}
+                    <div className="flex flex-col items-end gap-2">
+                        <div className={`flex items-center gap-2 px-4 py-2 rounded-full border ${isStudentAccess ? 'bg-purple-50 border-purple-200' : 'bg-gray-50 border-gray-200'}`}>
+                            <div className={`w-3 h-3 rounded-full ${isStudentAccess ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+                            <span className={`text-sm font-bold ${isStudentAccess ? 'text-purple-700' : 'text-gray-500'}`}>
+                                {isStudentAccess ? '학생 결과 페이지 공개 중' : '학생 결과 페이지 비공개'}
+                            </span>
+                            <label className="relative inline-flex items-center cursor-pointer ml-2">
+                                <input type="checkbox" checked={isStudentAccess} onChange={toggleStudentAccess} className="sr-only peer" />
+                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#AC5BF8]"></div>
+                            </label>
+                        </div>
+                        {isStudentAccess && (
+                            <a
+                                href={`/student/verify/${examCode}`}
+                                target="_blank"
+                                className="text-xs text-[#AC5BF8] underline hover:text-purple-700"
+                            >
+                                학생 페이지 링크 열기 ↗
+                            </a>
+                        )}
+                    </div>
                 </div>
 
                 {/* Main Content Area (Frame) */}

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef, useEffect } from "react";
 import { UploadedFile } from "../../types";
 
 interface FileUploadSectionProps {
@@ -21,6 +21,22 @@ export const FileUploadSection: React.FC<FileUploadSectionProps> = ({
     answerSheetFiles,
     setAnswerSheetFiles
 }) => {
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Sync state changes back to the native file input to ensure the "N files selected" text is correct
+    useEffect(() => {
+        if (fileInputRef.current) {
+            const dataTransfer = new DataTransfer();
+            answerSheetFiles.forEach(file => {
+                // Determine if we have the original File object
+                if (file.file instanceof File) {
+                    dataTransfer.items.add(file.file);
+                }
+            });
+            fileInputRef.current.files = dataTransfer.files;
+        }
+    }, [answerSheetFiles]);
+
     return (
         <div className="pt-12">
             <div className="flex justify-between items-end mb-8">
@@ -65,17 +81,27 @@ export const FileUploadSection: React.FC<FileUploadSectionProps> = ({
                         )}
                     </h3>
                     <input
+                        ref={fileInputRef}
                         type="file"
                         accept=".csv,.xlsx,.pdf"
                         multiple
                         onChange={(e) => {
                             const files = e.target.files;
                             if (files) {
-                                const uploadedFiles: UploadedFile[] = Array.from(files).map((file) => ({
+                                // Accumulate files instead of replacing
+                                const newFiles: UploadedFile[] = Array.from(files).map((file) => ({
                                     file,
                                     name: file.name,
                                 }));
-                                setAnswerSheetFiles(uploadedFiles);
+
+                                // Avoid duplicates if needed, or just append. 
+                                // Requirements imply we just want to add them. 
+                                // But standard behavior for input type=file is replace.
+                                // The user's issue implies they want to manipulate the list.
+                                // If we want to support "add more", we should merge.
+                                // However, keeping it simple: just update state. 
+                                // The useEffect will handle the reverse sync.
+                                setAnswerSheetFiles(newFiles);
                             }
                         }}
                         className="border border-black p-2 rounded w-full text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 cursor-pointer file:cursor-pointer"

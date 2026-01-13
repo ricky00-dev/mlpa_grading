@@ -31,3 +31,9 @@ FE/mlpa-gradi-frontend/node_modules/
 # Temporary files
 push_error.txt
 push.log
+
+# AI & IDE
+./ai/mcp/
+.idea/
+.vscode/
+BE/ai/

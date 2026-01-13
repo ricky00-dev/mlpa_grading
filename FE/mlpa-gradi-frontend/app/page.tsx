@@ -53,12 +53,14 @@ const Landing: React.FC = () => {
             <div
                 className="absolute w-[315px] h-[315px] left-[418px] top-[129.04px] animate-fade-in-up"
                 style={{
-                    backgroundImage: "url(/MLPA_logo.png)",
-                    backgroundSize: "cover",
+                    backgroundImage: "url(/Dankook_emblem.png)",
+                    backgroundSize: "contain",
                     backgroundPosition: "center",
                     backgroundRepeat: "no-repeat",
                 }}
             ></div>
+
+
 
             {/* Left Button -> /exam-input */}
             <div className="absolute top-[521.52px] left-[258px] animate-fade-in-up">
@@ -71,6 +73,16 @@ const Landing: React.FC = () => {
             <div className="absolute top-[521.52px] left-[677px] animate-fade-in-up">
                 <Link href="/history" className="inline-block cursor-pointer">
                     <Button label="결과 확인" />
+                </Link>
+            </div>
+
+            {/* Makers Link */}
+            <div className="absolute top-[30px] right-[40px] animate-fade-in-up">
+                <Link
+                    href="/makers"
+                    className="font-extrabold text-xl bg-gradient-to-r from-[#AC5BF8] to-[#636ACF] bg-clip-text text-transparent hover:opacity-80 transition-opacity cursor-pointer"
+                >
+                    만든 사람들
                 </Link>
             </div>
 

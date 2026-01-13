@@ -40,6 +40,7 @@ export const useExamForm = () => {
         const minutes = String(today.getMinutes()).padStart(2, '0');
         return `${year}-${month}-${day}T${hours}:${minutes}`;
     });
+    const [isStudentResultEnabled, setIsStudentResultEnabled] = useState(true);
     const [attendanceFile, setAttendanceFile] = useState<UploadedFile | null>(null);
     const [answerSheetFiles, setAnswerSheetFiles] = useState<UploadedFile[]>([]);
     const [isInitialized, setIsInitialized] = useState(false);
@@ -63,6 +64,7 @@ export const useExamForm = () => {
                 } else {
                     if (savedQ) setQuestions(savedQ);
                     if (savedTitle) setExamTitle(savedTitle);
+                    if (parsed.isStudentResultEnabled) setIsStudentResultEnabled(parsed.isStudentResultEnabled);
                     setExamDate(savedDate);
                     console.log("[Draft] Restored exam input draft from localStorage");
                 }
@@ -82,11 +84,12 @@ export const useExamForm = () => {
             questions,
             examTitle,
             examDate,
+            isStudentResultEnabled,
             // We don't save File objects (attendanceFile, answerSheetFiles) 
             // because they cannot be serialized to JSON/localStorage.
         };
         localStorage.setItem("gradi_exam_input_draft", JSON.stringify(draft));
-    }, [questions, examTitle, examDate, isInitialized]);
+    }, [questions, examTitle, examDate, isStudentResultEnabled, isInitialized]);
 
     // Derived State
     const totalScore = useMemo(() => questions.reduce((acc, q) => acc + (Number(q.score) || 0), 0), [questions]);
@@ -265,8 +268,11 @@ export const useExamForm = () => {
             // ✅ Clear draft on success
             localStorage.removeItem("gradi_exam_input_draft");
 
+            // ✅ Save Student Access Setting (Mock Backend)
+            localStorage.setItem(`student_access_${sagaContext.examCode}`, String(isStudentResultEnabled));
+
             alert(`시험이 성공적으로 생성되었습니다!\n시험 코드: ${sagaContext.examCode}`);
-            router.push(`/exam/${sagaContext.examId}/loading/student-id?examCode=${sagaContext.examCode}&examName=${encodeURIComponent(examTitle)}&total=${answerSheetFiles.length}`);
+            router.push(`/exam/${sagaContext.examId}/loading/student-id?examCode=${sagaContext.examCode}&examName=${encodeURIComponent(examTitle)}&total=${answerSheetFiles.length}&studentPage=${isStudentResultEnabled ? 'true' : 'false'}`);
         } catch (error) {
             console.error("Saga failed:", error);
             setIsLoading(false);
@@ -282,6 +288,8 @@ export const useExamForm = () => {
         setExamTitle,
         examDate,
         setExamDate,
+        isStudentResultEnabled,
+        setIsStudentResultEnabled,
         attendanceFile,
         setAttendanceFile,
         answerSheetFiles,
