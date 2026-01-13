@@ -53,8 +53,8 @@ const makers: Maker[] = [
         email: "comicricky@naver.com",
         ig: "@rixxybin",
         githubId: "ricky00",
-        image: "/makers/jo_seongbin.jpg",
-        objectPosition: "center 100%",
+        image: "/makers/jo_seongbin.png",
+        objectPosition: "center 15%",
     },
 ];
 
