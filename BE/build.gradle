@@ -29,6 +29,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
+    implementation 'org.springframework.boot:spring-boot-starter-mail' // ✅ Mail
 // ✅ AWS SDK v2
     implementation platform('software.amazon.awssdk:bom:2.25.38')
     implementation 'software.amazon.awssdk:s3'
