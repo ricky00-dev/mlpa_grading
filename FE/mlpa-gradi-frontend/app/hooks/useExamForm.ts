@@ -198,11 +198,21 @@ export const useExamForm = () => {
 
     // Workflow Handler
     const handleStartGrading = async () => {
-        // Validation
+        // ✅ 즉시 로딩 상태로 전환 (UX 개선)
+        setIsLoading(true);
+        setLoadingMessage("검증 중...");
+
+        // Validation (짧은 delay로 UI 업데이트 보장)
+        await new Promise(resolve => setTimeout(resolve, 50));
+
         if (!examTitle.trim() || !examDate) {
+            setIsLoading(false);
+            setLoadingMessage("");
             alert("시험 이름과 일시를 입력해주세요.");
             return;
         }
+
+        setLoadingMessage("문항 검증 중...");
 
         let hasInvalidQuestion = false;
         for (const q of questions) {
@@ -222,9 +232,13 @@ export const useExamForm = () => {
         }
 
         if (hasInvalidQuestion) {
+            setIsLoading(false);
+            setLoadingMessage("");
             alert("정답이 입력되지 않고 배점이 0점인 문항이 있습니다. 확인해주세요.");
             return;
         }
+
+        setLoadingMessage("파일 검증 중...");
 
         // ✅ 이미지 타입 사전 검증
         const ALLOWED_TYPES = ["image/png", "image/jpg", "image/jpeg"];
@@ -233,6 +247,8 @@ export const useExamForm = () => {
                 (f) => !ALLOWED_TYPES.includes(f.file.type)
             );
             if (invalidFiles.length > 0) {
+                setIsLoading(false);
+                setLoadingMessage("");
                 alert(`지원하지 않는 이미지 형식입니다.\nPNG, JPG, JPEG만 허용됩니다.\n\n문제 파일: ${invalidFiles.map(f => f.name).join(", ")}`);
                 return;
             }
@@ -265,8 +281,7 @@ export const useExamForm = () => {
         });
 
         // ✅ Saga 패턴으로 실행
-        setIsLoading(true);
-        setLoadingMessage("준비 중...");
+        setLoadingMessage("시험 생성 준비 중...");
 
         const sagaContext: ExamSagaContext = {
             examName: examTitle,

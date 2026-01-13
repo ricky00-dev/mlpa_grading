@@ -47,9 +47,10 @@ export const examService = {
         return response.json();
     },
 
-    // ✅ SSE 연결 (examCode 기반)
+    // ✅ SSE 연결 (examCode 기반) - 직접 연결로 프록시 버퍼링 우회
     connectSSE(examCode: string): EventSource {
-        const eventSource = new EventSource(`${API_BASE}/storage/sse/connect?examCode=${examCode}`);
+        // Next.js 프록시는 SSE 스트리밍에 버퍼링 문제를 일으킬 수 있어 직접 연결
+        const eventSource = new EventSource(`http://127.0.0.1:8080/api/storage/sse/connect?examCode=${examCode}`);
         return eventSource;
     },
 
