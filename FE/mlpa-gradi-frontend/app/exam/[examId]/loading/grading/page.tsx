@@ -1,28 +1,31 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
-import GradingLoading from "../../../../components/GradingLoading";
+import React, { useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import GradingLoading from "../../../../GradingLoading";
 import GradingDone from "../../../../components/GradingDone";
 
 const GradingLoadingPage = () => {
     const params = useParams();
-    const examId = params.examId as string;
+    const router = useRouter();
+
+    const examCode = (Array.isArray(params.examId) ? params.examId[0] : params.examId) || "UNKNOWN";
     const [status, setStatus] = useState<"loading" | "done">("loading");
 
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            setStatus("done");
-        }, 3000); // 3 seconds loading
-
-        return () => clearTimeout(timer);
+    const handleComplete = React.useCallback(() => {
+        setStatus("done");
     }, []);
 
+    const handleNext = () => {
+        // Navigate to results page with highlight param
+        router.push(`/history?highlight=${examCode}`);
+    };
+
     if (status === "loading") {
-        return <GradingLoading examCode={examId} />;
+        return <GradingLoading examCode={examCode} onComplete={handleComplete} />;
     }
 
-    return <GradingDone examId={examId} />;
+    return <GradingDone examCode={examCode} onNext={handleNext} />;
 };
 
 export default GradingLoadingPage;

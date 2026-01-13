@@ -5,13 +5,17 @@ interface ExamInfoFormProps {
     setExamTitle: (value: string) => void;
     examDate: string;
     setExamDate: (value: string) => void;
+    isStudentResultEnabled: boolean;
+    setIsStudentResultEnabled: (value: boolean) => void;
 }
 
 export const ExamInfoForm: React.FC<ExamInfoFormProps> = ({
     examTitle,
     setExamTitle,
     examDate,
-    setExamDate
+    setExamDate,
+    isStudentResultEnabled,
+    setIsStudentResultEnabled
 }) => {
     return (
         <div>
@@ -32,8 +36,8 @@ export const ExamInfoForm: React.FC<ExamInfoFormProps> = ({
                     />
                 </div>
 
-                {/* Exam Date */}
-                <div className="flex items-center gap-4">
+                {/* Exam Date & Student Result Option */}
+                <div className="flex flex-col gap-6">
                     <div className="w-1/2">
                         <label className="block text-lg font-semibold mb-2">시험 일시</label>
                         <div className="relative w-full">
@@ -65,6 +69,35 @@ export const ExamInfoForm: React.FC<ExamInfoFormProps> = ({
                                 </svg>
                             </div>
                         </div>
+                    </div>
+
+                    {/* Student Result Page Checkbox */}
+                    <div className="flex items-center gap-3 p-4 bg-white/50 rounded-lg border border-purple-100">
+                        <div className="relative flex items-center">
+                            <input
+                                type="checkbox"
+                                id="student-result-check"
+                                checked={isStudentResultEnabled}
+                                onChange={(e) => setIsStudentResultEnabled(e.target.checked)}
+                                className="peer h-6 w-6 cursor-pointer appearance-none rounded border border-gray-300 shadow-sm checked:border-[#AC5BF8] checked:bg-[#AC5BF8] hover:border-[#AC5BF8] focus:outline-none focus:ring-2 focus:ring-[#AC5BF8]/50"
+                            />
+                            <svg
+                                className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 peer-checked:opacity-100"
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="3"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            >
+                                <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                        </div>
+                        <label htmlFor="student-result-check" className="cursor-pointer select-none text-lg font-semibold text-gray-700">
+                            학생들에게 보여줄 결과확인 페이지 생성하기
+                        </label>
                     </div>
                 </div>
             </div>

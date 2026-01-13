@@ -17,6 +17,8 @@ const ExamInput: React.FC = () => {
         setExamTitle,
         examDate,
         setExamDate,
+        isStudentResultEnabled,
+        setIsStudentResultEnabled,
         attendanceFile,
         setAttendanceFile,
         answerSheetFiles,
@@ -61,6 +63,8 @@ const ExamInput: React.FC = () => {
                     setExamTitle={setExamTitle}
                     examDate={examDate}
                     setExamDate={setExamDate}
+                    isStudentResultEnabled={isStudentResultEnabled}
+                    setIsStudentResultEnabled={setIsStudentResultEnabled}
                 />
 
                 {/* 2. Question List */}
