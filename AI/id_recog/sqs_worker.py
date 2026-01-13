@@ -24,17 +24,19 @@ import numpy as np
 from PIL import Image
 from botocore.exceptions import ClientError
 
-from sqs_schemas import (
+from id_recog.sqs_schemas import (
     SQSInputMessage, 
     SQSOutputMessage,
     AnswerRecognitionInputMessage,
     AnswerRecognitionOutputMessage,
     AnswerRecognitionResultItem,
+    AnswerFallbackMessage,
     GradingResultMessage,
     EVENT_ATTENDANCE_UPLOAD,
     EVENT_STUDENT_ID_RECOGNITION,
     EVENT_ANSWER_METADATA_UPLOAD,
     EVENT_ANSWER_RECOGNITION,
+    EVENT_ANSWER_FALLBACK,
     EVENT_GRADING_COMPLETE,
     EVENT_GRADING_RESULT,
     UNKNOWN_ID
@@ -64,10 +66,12 @@ class SQSWorker:
         aws_secret_access_key: str,
         region_name: str = "ap-northeast-2",
         s3_bucket: str = "mlpa-gradi",
-        result_queue_url: str = None  # AI → BE 결과 전송용 큐 (None이면 queue_url 사용)
+        result_queue_url: str = None,  # AI → BE 결과 전송용 큐 (None이면 queue_url 사용)
+        fallback_queue_url: str = None  # AI → BE Fallback 알림용 큐
     ):
         self.queue_url = queue_url  # BE → AI 입력 큐
         self.result_queue_url = result_queue_url if result_queue_url else queue_url  # AI → BE 결과 큐
+        self.fallback_queue_url = fallback_queue_url  # AI → BE Fallback 알림 큐
         self.s3_bucket = s3_bucket
         
         # SQS 클라이언트
@@ -102,6 +106,14 @@ class SQSWorker:
         
         # ExamCode별 정답 메타데이터 저장소 (답안 인식용)
         self._answer_metadata: Dict[str, dict] = {}
+        
+        # =====================================================================
+        # NACK 추적 (무한 재시도 방지용)
+        # =====================================================================
+        # 키: f"{exam_code}:{filename}", 값: NACK 횟수
+        self._nack_tracker: Dict[str, int] = {}
+        # 최대 NACK 횟수 (이후 메시지 삭제 및 에러 로깅)
+        self._max_nack_count: int = 5
         
         logger.info(f"SQS Worker 초기화 완료: 입력={queue_url}, 결과={self.result_queue_url}")
     
@@ -309,6 +321,34 @@ class SQSWorker:
             logger.error(f"SQS 메시지 전송 실패: {e}")
             return None
     
+    def send_fallback_message(self, message: AnswerFallbackMessage, group_id: str = "fallback") -> Optional[str]:
+        """Fallback 알림 메시지를 Fallback 큐(AI → BE)로 전송"""
+        import uuid
+        
+        if not self.fallback_queue_url:
+            print("[SQS_FALLBACK] ⚠️ Fallback 큐 URL이 설정되지 않아 전송 생략")
+            return None
+        
+        try:
+            body = message.to_json()
+            print(f"[SQS_FALLBACK] Fallback 큐로 전송할 JSON:\n{body}")
+            logger.info(f"[SQS_FALLBACK] Sending to {self.fallback_queue_url}: {body}")
+            
+            response = self.sqs.send_message(
+                QueueUrl=self.fallback_queue_url,
+                MessageBody=body,
+                MessageGroupId=group_id,
+                MessageDeduplicationId=str(uuid.uuid4())
+            )
+            msg_id = response.get('MessageId')
+            print(f"[SQS_FALLBACK] ✅ Fallback 전송 완료 (MessageId: {msg_id})")
+            logger.info(f"SQS Fallback 전송 완료: {msg_id}")
+            return msg_id
+        except ClientError as e:
+            print(f"[SQS_FALLBACK] ❌ Fallback 전송 실패: {e}")
+            logger.error(f"SQS Fallback 메시지 전송 실패: {e}")
+            return None
+    
     def delete_message(self, receipt_handle: str) -> bool:
         """처리 완료된 메시지 삭제 (입력 큐에서)"""
         try:
@@ -345,7 +385,7 @@ class SQSWorker:
                 student_ids = self._attendance_callback(tmp_path)
             else:
                 # 기본 파싱
-                from parsing_xlsx import parsing_xlsx
+                from id_recog.parsing_xlsx import parsing_xlsx
                 student_ids = parsing_xlsx(tmp_path)
             
             # 3. 메모리에 저장
@@ -366,14 +406,46 @@ class SQSWorker:
         """이미지 학번 추출 이벤트 처리"""
         
         # =====================================================================
-        # NACK 로직: 출석부가 아직 로드되지 않았으면 재시도
+        # NACK 로직 (재시도 횟수 제한 추가)
         # =====================================================================
         student_list = self.get_student_list(msg.exam_code)
         if not student_list:
+            # NACK 추적 키 생성
+            nack_key = f"{msg.exam_code}:{msg.filename}"
+            self._nack_tracker[nack_key] = self._nack_tracker.get(nack_key, 0) + 1
+            nack_count = self._nack_tracker[nack_key]
+            
             print(f"[NACK] ⏳ 출석부가 아직 로드되지 않음 (exam={msg.exam_code})")
+            print(f"[NACK] 재시도 횟수: {nack_count}/{self._max_nack_count}")
+            logger.warning(f"[NACK] 출석부 미로드 상태에서 이미지 도착: {msg.exam_code}/{msg.filename} (시도 {nack_count}/{self._max_nack_count})")
+            
+            # 최대 재시도 횟수 초과 시 메시지 삭제 및 에러 처리
+            if nack_count >= self._max_nack_count:
+                print(f"[NACK_LIMIT] ❌ 최대 재시도 횟수 초과! 메시지를 DLQ 처리합니다.")
+                logger.error(f"[NACK_LIMIT] 최대 재시도 횟수 초과 (출석부 미로드): {msg.exam_code}/{msg.filename}")
+                
+                # 에러 결과 메시지 전송 (BE에 알림)
+                error_result = SQSOutputMessage.create(
+                    exam_code=msg.exam_code,
+                    student_id=None,  # 실패
+                    filename=msg.filename,
+                    index=-1  # 에러 표시
+                )
+                error_result.meta = {
+                    "error": "ATTENDANCE_NOT_LOADED",
+                    "message": f"출석부가 {self._max_nack_count}회 시도 후에도 로드되지 않았습니다.",
+                    "nack_count": nack_count
+                }
+                self.send_result_message(error_result, group_id=msg.exam_code)
+                
+                # 추적에서 제거
+                del self._nack_tracker[nack_key]
+                
+                # True 반환 → 메시지 삭제 (더 이상 재시도 안 함)
+                return True
+            
+            # False 반환 → delete_message()가 호출되지 않음 → VisibilityTimeout 후 재시도
             print(f"[NACK] 메시지를 삭제하지 않고 재시도 대기 (VisibilityTimeout 후 자동 재시도)")
-            logger.warning(f"[NACK] 출석부 미로드 상태에서 이미지 도착: {msg.exam_code}/{msg.filename}")
-            # False 반환 → delete_message()가 호출되지 않음 → 5분 후 재시도
             return False
         
         current_index = self.get_next_index(msg.exam_code)
@@ -449,6 +521,12 @@ class SQSWorker:
         print(f"[STEP 4/4] ✅ S3 업로드 완료!")
         
         print(f"[DONE] 이미지 처리 완료: {msg.filename} → {student_id or 'unknown_id'}")
+        
+        # 성공 시 NACK 트래커에서 제거 (메모리 정리)
+        nack_key = f"{msg.exam_code}:{msg.filename}"
+        if nack_key in self._nack_tracker:
+            del self._nack_tracker[nack_key]
+        
         return True
     
     def process_message(self, msg: SQSInputMessage) -> bool:
@@ -954,7 +1032,8 @@ def init_sqs_worker(
     aws_secret_access_key: str,
     region_name: str = "ap-northeast-2",
     s3_bucket: str = "mlpa-gradi",
-    result_queue_url: str = None
+    result_queue_url: str = None,
+    fallback_queue_url: str = None
 ) -> SQSWorker:
     """SQS Worker 초기화 및 싱글톤 설정"""
     global _worker_instance
@@ -964,6 +1043,7 @@ def init_sqs_worker(
         aws_secret_access_key=aws_secret_access_key,
         region_name=region_name,
         s3_bucket=s3_bucket,
-        result_queue_url=result_queue_url
+        result_queue_url=result_queue_url,
+        fallback_queue_url=fallback_queue_url
     )
     return _worker_instance
